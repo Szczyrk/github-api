@@ -73,6 +73,8 @@ public class GitHubService {
             return responseList;
         } catch (HttpClientErrorException.NotFound e) {
             throw new UserNotFoundException("User not found: " + username);
+        } catch (HttpClientErrorException.Forbidden e) {
+            throw new RateLimitExceededException("GitHub API rate limit exceeded");
         } catch (Exception e) {
             e.printStackTrace();
             throw new RuntimeException("Unexpected error", e);
@@ -88,6 +90,12 @@ public class GitHubService {
     public static class NoRepositoriesFoundException extends RuntimeException 
     {
         public NoRepositoriesFoundException(String msg) {
+            super(msg);
+        }
+    }
+
+        public static class RateLimitExceededException extends RuntimeException {
+        public RateLimitExceededException(String msg) {
             super(msg);
         }
     }
