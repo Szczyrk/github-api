@@ -1,49 +1,84 @@
 package com.example.github_api;
 
+import com.github.tomakehurst.wiremock.client.WireMock;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.http.*;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.cloud.contract.wiremock.AutoConfigureWireMock;
+import org.springframework.test.web.reactive.server.WebTestClient;
 
-import java.util.List;
-import java.util.Map;
+import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
-import static org.assertj.core.api.Assertions.assertThat;
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = "spring.profiles.active=test"
+)
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureWireMock(port = 8888)
 public class GitHubApiIntegrationTest {
 
     @LocalServerPort
     int port;
 
-    RestTemplate restTemplate = new RestTemplate();
-	@SuppressWarnings("unchecked")
+    @Autowired
+    private WebTestClient webTestClient;
+
+    @BeforeEach
+    void setupMocks() {
+        // 1. Mock /users/octocat/repos
+        stubFor(get(urlEqualTo("/users/octocat/repos"))
+                .willReturn(okJson("""
+                    [
+                      {
+                        "name": "real-repo",
+                        "fork": false,
+                        "owner": { "login": "octocat" }
+                      },
+                      {
+                        "name": "forked-repo",
+                        "fork": true,
+                        "owner": { "login": "octocat" }
+                      }
+                    ]
+                """)));
+
+        // 2. Mock /repos/octocat/real-repo/branches
+        stubFor(get(urlEqualTo("/repos/octocat/real-repo/branches"))
+                .willReturn(okJson("""
+                    [
+                      {
+                        "name": "main",
+                        "commit": {
+                          "sha": "abc123"
+                        }
+                      }
+                    ]
+                """)));
+    }
+
     @Test
-    void shouldReturnNonForkRepositoriesWithBranches() {
-        // given
-        String user = "octocat";
-
-        // when
-        ResponseEntity<List> response = restTemplate.exchange(
-            "http://localhost:" + port + "/api/github/" + user + "/repositories",
-            HttpMethod.GET,
-            null,
-            List.class
-        );
-
-        // then
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        List<?> repos = response.getBody();
-        assertThat(repos).isNotEmpty();
-
-        Map firstRepo = (Map) repos.get(0);
-        assertThat(firstRepo).containsKeys("repositoryName", "ownerLogin", "branches");
-
-        List<?> branches = (List<?>) firstRepo.get("branches");
-        assertThat(branches).isNotEmpty();
-
-        Map firstBranch = (Map) branches.get(0);
-        assertThat(firstBranch).containsKeys("name", "lastCommitSha");
+    void shouldReturnOnlyNonForkRepositoriesWithBranches() {
+        webTestClient.get()
+                .uri("http://localhost:" + port + "/api/github/octocat/repositories")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .json("""
+                    [
+                      {
+                        "repositoryName": "real-repo",
+                        "ownerLogin": "octocat",
+                        "branches": [
+                          {
+                            "name": "main",
+                            "lastCommitSha": "abc123"
+                          }
+                        ]
+                      }
+                    ]
+                """);
     }
 }
